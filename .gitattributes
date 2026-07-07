@@ -1,0 +1,2 @@
+# Mark vendored dependencies to exclude from language statistics
+vendor/** linguist-vendored

@@ -1,0 +1,8 @@
+[package]
+name = "volta_common"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+ansi_term.workspace = true
+textwrap.workspace = true

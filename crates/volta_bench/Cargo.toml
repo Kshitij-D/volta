@@ -1,0 +1,25 @@
+[package]
+name = "volta_bench"
+version.workspace = true
+edition.workspace = true
+description = "Benchmark suite for Volta PTX equivalence checker"
+
+[[bin]]
+name = "volta-bench"
+path = "src/main.rs"
+
+[features]
+default = []
+logging = ["volta_analysis/logging", "dep:env_logger", "dep:log"]
+
+[dependencies]
+volta_analysis.workspace = true
+volta_common.workspace = true
+volta_frontend.workspace = true
+
+anyhow.workspace = true
+clap.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+env_logger = { workspace = true, optional = true }
+log = { workspace = true, optional = true }

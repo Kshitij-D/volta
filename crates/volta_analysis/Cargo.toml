@@ -1,0 +1,20 @@
+[package]
+name = "volta_analysis"
+version.workspace = true
+edition.workspace = true
+
+[features]
+default = []
+logging = ["dep:log"]  # Full logging when enabled
+
+[dependencies]
+log = { workspace = true, optional = true }
+volta_common.workspace = true
+volta_frontend.workspace = true
+
+id_collections.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+stacker.workspace = true
+fixedbitset.workspace = true
