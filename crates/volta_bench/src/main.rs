@@ -69,6 +69,18 @@ enum Commands {
     Single { name: String },
     /// List all benchmarks
     List,
+    /// Compare the decision procedure against Z3 (SMT-LIB2 via the `z3`
+    /// CLI) on the same equivalence benchmarks: timing and per-element
+    /// outcome side by side. Needs `z3` on PATH (apt-get install z3).
+    Z3Compare {
+        /// "all", a category, or an exact benchmark name
+        selector: String,
+        #[arg(long)]
+        json: Option<PathBuf>,
+        /// Per-query Z3 timeout in seconds (0 = no limit)
+        #[arg(long, default_value_t = 30)]
+        z3_timeout: u64,
+    },
 }
 
 fn main() -> ExitCode {
@@ -155,12 +167,86 @@ fn main() -> ExitCode {
                 "Elems:   {} checked of {}",
                 result.stats.elements_checked, result.stats.elements_total
             );
+            let mut profile = Vec::new();
+            volta_bench::print_op_counts(&mut profile, "reference", &result.stats.reference_op_counts).unwrap();
+            volta_bench::print_op_counts(&mut profile, "optimized", &result.stats.optimized_op_counts).unwrap();
+            print!("{}", String::from_utf8_lossy(&profile));
             if !result.passed {
                 let mut out = Vec::new();
                 print_summary(&mut out, std::slice::from_ref(&result)).unwrap();
                 print!("{}", String::from_utf8_lossy(&out));
             }
             exit_by_pass(result.passed)
+        }
+        Commands::Z3Compare {
+            selector,
+            json,
+            z3_timeout,
+        } => {
+            if !volta_z3::z3_available() {
+                eprintln!("error: z3 is not installed / not on PATH (try: apt-get install z3)");
+                return ExitCode::FAILURE;
+            }
+            let suite = all_benchmarks();
+            let defs: Vec<&volta_bench::BenchmarkDef> = if selector.eq_ignore_ascii_case("all") {
+                suite.benchmarks.iter().collect()
+            } else if let Some(category) = parse_category(&selector) {
+                suite.filter_category(category)
+            } else if let Some(def) = suite.benchmarks.iter().find(|b| b.name == selector) {
+                vec![def]
+            } else {
+                eprintln!(
+                    "Unknown selector '{}' (not 'all', a category, or an exact benchmark name)",
+                    selector
+                );
+                return ExitCode::FAILURE;
+            };
+
+            let kernels_dir = runner_config.kernels_dir.clone();
+            let z3_timeout = if z3_timeout == 0 {
+                None
+            } else {
+                Some(std::time::Duration::from_secs(z3_timeout))
+            };
+
+            println!(
+                "{:<28} {:>8} {:>8} {:>8} {:>9}  {}",
+                "Benchmark", "Exec(s)", "Dec(s)", "Z3(s)", "Decision", "Z3: equiv/diff/unk/unsup/err"
+            );
+            println!("{}", "-".repeat(100));
+            let mut rows = Vec::new();
+            for def in &defs {
+                let row = volta_bench::compare_one(
+                    &kernels_dir,
+                    def,
+                    cli.sample,
+                    cli.recycle_terms,
+                    z3_timeout,
+                );
+                if let Some(err) = &row.error {
+                    println!("{:<28} {}", row.name, err);
+                } else {
+                    println!(
+                        "{:<28} {:>8.3} {:>8.3} {:>8.3} {:>9}  {}/{}/{}/{}/{}",
+                        row.name,
+                        row.exec_secs,
+                        row.decision_secs,
+                        row.z3_secs,
+                        row.decision_status,
+                        row.z3_equiv,
+                        row.z3_not_equiv,
+                        row.z3_unknown,
+                        row.z3_unsupported,
+                        row.z3_error
+                    );
+                }
+                rows.push(row);
+            }
+            if let Some(path) = json {
+                volta_bench::z3_compare::export_json(&rows, &path).unwrap();
+                println!("Results exported to {}", path.display());
+            }
+            ExitCode::SUCCESS
         }
         Commands::List => {
             let suite = all_benchmarks();

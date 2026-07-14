@@ -1,0 +1,9 @@
+[package]
+name = "volta_z3"
+version.workspace = true
+edition.workspace = true
+description = "Z3 backend for verification-condition equivalence checking, for timing comparison against volta_analysis::canon's decision procedure. Generates SMT-LIB2 and shells out to the `z3` CLI binary, just needs `z3` on PATH."
+
+[dependencies]
+volta_analysis.workspace = true
+thiserror.workspace = true

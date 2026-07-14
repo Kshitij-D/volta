@@ -6,12 +6,12 @@ use std::fmt;
 use volta_frontend::ast::{Function, Module, TopLevelItem, VarDecl};
 
 use crate::equiv::{DEFAULT_RECYCLE_TERMS, EquivError, EquivSession};
-use crate::eval::{AnalysisConfig, AnalysisOutput, EvalError, Interpreter};
+use crate::eval::{AnalysisConfig, AnalysisOutput, EvalError, Interpreter, Stats};
 use crate::logging::info;
 use crate::lower_error::LowerError;
 use crate::lowering::lower_function;
 use crate::numeric;
-use crate::symbolic::ExprId;
+use crate::symbolic::{ExprArena, ExprId};
 
 /// Errors from the end-to-end analysis of one kernel.
 #[derive(Debug)]
@@ -193,17 +193,16 @@ pub struct EquivCheckReport {
     pub elements_total: u64,
 }
 
-/// Check two analysis outputs element by element under `options`. One
-/// `EquivSession` is shared across all elements: structure shared between
-/// elements (and between the two kernels) canonicalizes once.
-pub fn check_output_equivalence_with(
+/// Pair up the reference and optimized outputs' written elements per array,
+/// according to `footprints`. Shared by `check_output_equivalence_with` (the
+/// decision procedure) and any other backend (e.g. `volta_z3`) that needs
+/// the exact same element correspondence to be a fair comparison.
+pub fn paired_elements(
     reference: &AnalysisOutput,
     optimized: &AnalysisOutput,
-    options: &EquivCheckOptions,
-) -> Result<EquivCheckReport, EquivCheckError> {
-    if options.footprints == FootprintPolicy::Exact
-        && reference.outputs.len() != optimized.outputs.len()
-    {
+    footprints: FootprintPolicy,
+) -> Result<Vec<(String, Vec<(u64, ExprId, ExprId)>)>, EquivCheckError> {
+    if footprints == FootprintPolicy::Exact && reference.outputs.len() != optimized.outputs.len() {
         return Err(EquivCheckError::ShapeMismatch {
             message: format!(
                 "{} output arrays vs {}",
@@ -213,11 +212,7 @@ pub fn check_output_equivalence_with(
         });
     }
 
-    let mut session = EquivSession::with_recycle_terms(options.recycle_terms);
-    let mut mismatches = Vec::new();
-    let mut elements_checked = 0u64;
-    let mut elements_total = 0u64;
-
+    let mut result = Vec::with_capacity(reference.outputs.len());
     for (name, ref_elems) in &reference.outputs {
         let Some((_, opt_elems)) = optimized.outputs.iter().find(|(n, _)| n == name) else {
             return Err(EquivCheckError::ShapeMismatch {
@@ -225,8 +220,7 @@ pub fn check_output_equivalence_with(
             });
         };
 
-        // Pair up comparable elements per the footprint policy.
-        let common: Vec<(u64, ExprId, ExprId)> = match options.footprints {
+        let common: Vec<(u64, ExprId, ExprId)> = match footprints {
             FootprintPolicy::Exact => {
                 if ref_elems.len() != opt_elems.len() {
                     return Err(EquivCheckError::ShapeMismatch {
@@ -279,7 +273,27 @@ pub fn check_output_equivalence_with(
                 common
             }
         };
+        result.push((name.clone(), common));
+    }
+    Ok(result)
+}
 
+/// Check two analysis outputs element by element under `options`. One
+/// `EquivSession` is shared across all elements: structure shared between
+/// elements (and between the two kernels) canonicalizes once.
+pub fn check_output_equivalence_with(
+    reference: &AnalysisOutput,
+    optimized: &AnalysisOutput,
+    options: &EquivCheckOptions,
+) -> Result<EquivCheckReport, EquivCheckError> {
+    let paired = paired_elements(reference, optimized, options.footprints)?;
+
+    let mut session = EquivSession::with_recycle_terms(options.recycle_terms);
+    let mut mismatches = Vec::new();
+    let mut elements_checked = 0u64;
+    let mut elements_total = 0u64;
+
+    for (name, common) in &paired {
         elements_total += common.len() as u64;
         let limit = match options.sample {
             0 => common.len(),
@@ -313,6 +327,46 @@ pub fn check_output_equivalence_with(
         elements_checked,
         elements_total,
     })
+}
+
+/// A snapshot of one kernel's verification conditions: the expression arena
+/// plus the output footprint (index -> root `ExprId`). This is exactly what
+/// `check_output_equivalence_with` needs and nothing else - `Stats`/op-counts
+/// describe the symbolic-execution run that produced it, not the VCs
+/// themselves, so they aren't part of the snapshot.
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct VcSnapshot {
+    pub arena: ExprArena,
+    pub outputs: Vec<(String, Vec<(u64, ExprId)>)>,
+}
+
+impl VcSnapshot {
+    pub fn from_output(output: AnalysisOutput) -> Self {
+        Self {
+            arena: output.arena,
+            outputs: output.outputs,
+        }
+    }
+
+    /// Rehydrate into the shape `check_output_equivalence_with` accepts.
+    /// `stats`/`op_counts` are empty: they belong to a symbolic-execution
+    /// run, and a dump has none to report.
+    pub fn into_analysis_output(self) -> AnalysisOutput {
+        AnalysisOutput {
+            arena: self.arena,
+            outputs: self.outputs,
+            stats: Stats::default(),
+            op_counts: std::collections::BTreeMap::new(),
+        }
+    }
+}
+
+/// The reference and optimized kernels' verification conditions, as
+/// persisted by `volta compare --dump-vcs` and reloaded by `--from-dump`.
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct VcDump {
+    pub reference: VcSnapshot,
+    pub optimized: VcSnapshot,
 }
 
 /// Check that two analysis outputs agree on every element of every output

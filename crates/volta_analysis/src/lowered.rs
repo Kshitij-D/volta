@@ -500,6 +500,49 @@ pub enum LoweredInstr {
 }
 
 impl LoweredInstr {
+    /// Short, static instruction-kind name for profiling/stats. An
+    /// exhaustive match so a new variant fails to compile here instead of
+    /// silently falling through to a catch-all.
+    pub fn kind_name(&self) -> &'static str {
+        match self {
+            LoweredInstr::LoadParam { .. } => "LoadParam",
+            LoweredInstr::Load { .. } => "Load",
+            LoweredInstr::LoadVec { .. } => "LoadVec",
+            LoweredInstr::Store { .. } => "Store",
+            LoweredInstr::StoreVec { .. } => "StoreVec",
+            LoweredInstr::Mov { .. } => "Mov",
+            LoweredInstr::Cvta { .. } => "Cvta",
+            LoweredInstr::BinOp { .. } => "BinOp",
+            LoweredInstr::UnaryOp { .. } => "UnaryOp",
+            LoweredInstr::Fma { .. } => "Fma",
+            LoweredInstr::Mad { .. } => "Mad",
+            LoweredInstr::MulWide { .. } => "MulWide",
+            LoweredInstr::MulHi { .. } => "MulHi",
+            LoweredInstr::Bfi { .. } => "Bfi",
+            LoweredInstr::Setp { .. } => "Setp",
+            LoweredInstr::Selp { .. } => "Selp",
+            LoweredInstr::Set { .. } => "Set",
+            LoweredInstr::Cvt { .. } => "Cvt",
+            LoweredInstr::Bra { .. } => "Bra",
+            LoweredInstr::Ret => "Ret",
+            LoweredInstr::Exit => "Exit",
+            LoweredInstr::BarSync { .. } => "BarSync",
+            LoweredInstr::BarSyncCount { .. } => "BarSyncCount",
+            LoweredInstr::BarWarpSync { .. } => "BarWarpSync",
+            LoweredInstr::Membar { .. } => "Membar",
+            LoweredInstr::Shfl { .. } => "Shfl",
+            LoweredInstr::ShflSync { .. } => "ShflSync",
+            LoweredInstr::Ldmatrix { .. } => "Ldmatrix",
+            LoweredInstr::Mma { .. } => "Mma",
+            LoweredInstr::WmmaLoad { .. } => "WmmaLoad",
+            LoweredInstr::WmmaStore { .. } => "WmmaStore",
+            LoweredInstr::WmmaMma { .. } => "WmmaMma",
+            LoweredInstr::Activemask { .. } => "Activemask",
+            LoweredInstr::Trap => "Trap",
+            LoweredInstr::Nop => "Nop",
+        }
+    }
+
     /// Collect all general-purpose registers read by this instruction.
     ///
     /// Does not include predicate guards (check `LoweredProgram::predicate`

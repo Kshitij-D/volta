@@ -9,6 +9,28 @@ use serde_json::json;
 use crate::config::BenchmarkCategory;
 use crate::runner::{ActualOutcome, BenchmarkResult};
 
+/// Print a per-instruction-kind execution profile, most-executed first.
+/// Same format as `volta_cli`'s own profile table, so output looks
+/// consistent whichever tool produced it.
+pub fn print_op_counts(
+    out: &mut impl Write,
+    label: &str,
+    counts: &std::collections::BTreeMap<&'static str, u64>,
+) -> Result<()> {
+    if counts.is_empty() {
+        return Ok(());
+    }
+    let total: u64 = counts.values().sum();
+    let mut entries: Vec<_> = counts.iter().collect();
+    entries.sort_by(|a, b| b.1.cmp(a.1).then(a.0.cmp(b.0)));
+    writeln!(out, "{} profile:", label)?;
+    for (kind, count) in entries {
+        let pct = 100.0 * *count as f64 / total.max(1) as f64;
+        writeln!(out, "  {:<16} {:>10}  ({:>5.1}%)", kind, count, pct)?;
+    }
+    Ok(())
+}
+
 /// Print one category's results as a table (paper-style columns).
 pub fn print_results_table(
     out: &mut impl Write,

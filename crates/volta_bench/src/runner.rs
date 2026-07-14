@@ -33,6 +33,11 @@ pub struct BenchmarkStats {
     pub elements_checked: u64,
     /// Output elements in the footprint (>= elements_checked when sampling)
     pub elements_total: u64,
+    /// Reference kernel's instructions executed, broken down by kind.
+    pub reference_op_counts: std::collections::BTreeMap<&'static str, u64>,
+    /// Optimized kernel's instructions executed, broken down by kind.
+    /// Empty for race-only benchmarks (no optimized kernel).
+    pub optimized_op_counts: std::collections::BTreeMap<&'static str, u64>,
 }
 
 /// Actual outcome of running a benchmark
@@ -178,6 +183,7 @@ impl BenchmarkRunner {
             }
         };
         record_exec_stats(&mut stats, reference.stats);
+        stats.reference_op_counts = reference.op_counts.clone();
 
         let Some(optimized_run) = &def.optimized else {
             // Race-check benchmark: reaching the end means no race.
@@ -197,6 +203,7 @@ impl BenchmarkRunner {
         stats.block_syncs = optimized.stats.block_syncs;
         stats.warp_syncs = optimized.stats.warp_syncs;
         stats.instructions += optimized.stats.instructions;
+        stats.optimized_op_counts = optimized.op_counts.clone();
         stats.exec_secs = exec0.elapsed().as_secs_f64();
 
         // Check the verification conditions.

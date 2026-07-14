@@ -93,6 +93,10 @@ pub struct AnalysisOutput {
     /// sorted by index. Only elements the kernel wrote appear.
     pub outputs: Vec<(String, Vec<(u64, ExprId)>)>,
     pub stats: Stats,
+    /// Instructions executed, broken down by kind (`LoweredInstr::kind_name`)
+    /// summed across all threads. A `BTreeMap` keeps printed/exported tables
+    /// in deterministic order.
+    pub op_counts: std::collections::BTreeMap<&'static str, u64>,
 }
 
 pub struct Interpreter<'p> {
@@ -111,6 +115,7 @@ pub struct Interpreter<'p> {
     regions: MemRegions,
     pub(in crate::eval) race: RaceTracker,
     pub(in crate::eval) stats: Stats,
+    pub(in crate::eval) op_counts: std::collections::BTreeMap<&'static str, u64>,
 }
 
 impl<'p> Interpreter<'p> {
@@ -232,6 +237,7 @@ impl<'p> Interpreter<'p> {
             regions,
             race: RaceTracker::new(n_threads as usize),
             stats: Stats::default(),
+            op_counts: std::collections::BTreeMap::new(),
         })
     }
 
@@ -328,6 +334,7 @@ impl<'p> Interpreter<'p> {
             arena: self.arena,
             outputs,
             stats: self.stats,
+            op_counts: self.op_counts,
         })
     }
 
@@ -496,6 +503,7 @@ impl<'p> Interpreter<'p> {
         let instr = instr.clone();
 
         self.stats.instructions += 1;
+        *self.op_counts.entry(instr.kind_name()).or_insert(0) += 1;
         if self.stats.instructions > self.config.max_instructions {
             return Err(EvalError::InstructionLimit {
                 limit: self.config.max_instructions,

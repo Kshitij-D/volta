@@ -16,7 +16,7 @@ use id_collections::{IdVec, id_type};
 static SYMBOL_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 /// A unique identifier for a symbolic variable
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct SymbolId(pub u64);
 
 impl SymbolId {
@@ -44,6 +44,30 @@ pub struct ExprId(pub u32);
 #[id_type]
 pub struct StringId(pub u32);
 
+// `#[id_type]` doesn't derive serde impls, so these go through `Id::to_index`/
+// `Id::from_index` by hand. Only meaningful when paired with the `ExprArena`
+// that produced them - see `ExprArena`'s own (de)serialization below.
+macro_rules! impl_id_serde {
+    ($ty:ty) => {
+        impl serde::Serialize for $ty {
+            fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+                id_collections::Id::to_index(*self).serialize(serializer)
+            }
+        }
+
+        impl<'de> serde::Deserialize<'de> for $ty {
+            fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+                Ok(id_collections::Id::from_index(u32::deserialize(
+                    deserializer,
+                )?))
+            }
+        }
+    };
+}
+
+impl_id_serde!(ExprId);
+impl_id_serde!(StringId);
+
 // =========================================================================
 // Expression node
 // =========================================================================
@@ -52,7 +76,7 @@ pub struct StringId(pub u32);
 ///
 /// Following the paper, we model tensor values as real numbers.
 /// The decision procedure will later check equality of these expressions.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum ExprNode {
     // =====================================================================
     // Atoms
@@ -208,6 +232,36 @@ pub enum ExprNode {
 pub struct ExprArena {
     nodes: IdVec<ExprId, ExprNode>,
     strings: IdVec<StringId, String>,
+}
+
+// `IdVec` has no serde support (see id_collections 1.0.1), so the arena is
+// (de)serialized by hand as its two flat `Vec`s - this is the format used by
+// `volta compare --dump-vcs`/`--from-dump` to persist verification
+// conditions across runs.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct ExprArenaData {
+    nodes: Vec<ExprNode>,
+    strings: Vec<String>,
+}
+
+impl serde::Serialize for ExprArena {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        ExprArenaData {
+            nodes: self.nodes.as_slice().to_vec(),
+            strings: self.strings.as_slice().to_vec(),
+        }
+        .serialize(serializer)
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for ExprArena {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let data = ExprArenaData::deserialize(deserializer)?;
+        Ok(ExprArena {
+            nodes: IdVec::from_vec(data.nodes),
+            strings: IdVec::from_vec(data.strings),
+        })
+    }
 }
 
 impl ExprArena {
